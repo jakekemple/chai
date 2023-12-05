@@ -1,7 +1,10 @@
+import base64
 import boto3
 import openai
 import json
 from datetime import datetime
+from pydub import AudioSegment
+import io
 
 # Initialize AWS clients
 dynamodb = boto3.resource("dynamodb")
@@ -22,7 +25,10 @@ def lambda_handler(event, context):
     conversation_history, existing_feedback = get_conversation_history_and_feedback(
         meeting_id
     )
-    updated_conversation = conversation_history + "\n" + convert_to_text(event["data"])
+
+    updated_conversation = (
+        conversation_history + "\n" + convert_to_text(event["audio_data"])
+    )
 
     # Calculate char_count and adjust updated_conversation if needed
     char_count = len(updated_conversation) + len(existing_feedback) + 450
@@ -103,6 +109,21 @@ def create_prompt(conversation_history, existing_feedback):
     )
 
 
-def convert_to_text(audio):
-    # Placeholder function for converting audio to text using Whisper API
-    return "Transcribed text from audio"
+def convert_to_text(encoded_audio, format="mp3"):
+    # Decode the Base64-encoded audio
+    audio_data = base64.b64decode(encoded_audio)
+
+    # Load audio using pydub
+    audio = AudioSegment.from_file(io.BytesIO(audio_data), format=format)
+
+    # Export the audio to WAV format for transcription
+    buffer = io.BytesIO()
+    audio.export(buffer, format="wav")
+    buffer.seek(0)
+
+    # Use Whisper API for transcription
+    transcription = openai.Audio.transcribe(model="whisper-1", file=buffer)
+    buffer.close()
+
+    # Extract and return the transcribed text
+    return transcription["text"]
